@@ -192,7 +192,7 @@ struct StylePortView: View {
 
     private func saveToLibrary() {
         guard let url = resultFileURL() else { return }
-        PHPhotoLibrary.requestAuthorization { status in
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
             guard status == .authorized || status == .limited else {
                 DispatchQueue.main.async { self.message = "未授权相册访问。" }
                 return

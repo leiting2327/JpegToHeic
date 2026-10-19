@@ -80,9 +80,9 @@ enum HeicConverter {
         )
     }
 
-    /// 把生成的 HEIC 文件保存到系统相册（需要相册添加权限）
+    /// 把生成的 HEIC 文件保存到系统相册（仅需“添加”权限，对应 NSPhotoLibraryAddUsageDescription）
     static func saveToPhotoLibrary(heicURL: URL, completion: @escaping (Bool, Error?) -> Void) {
-        PHPhotoLibrary.requestAuthorization { status in
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
             guard status == .authorized || status == .limited else {
                 DispatchQueue.main.async {
                     completion(false, nil)
