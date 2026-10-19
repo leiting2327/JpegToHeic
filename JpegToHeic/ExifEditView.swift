@@ -224,21 +224,24 @@ struct ExifEditView: View {
                 DispatchQueue.main.async { self.isWorking = false; self.message = "不支持的图片格式。" }
                 return
             }
-            var newMeta: [CFString: Any] = [:]
-            var tiff: [CFString: Any] = [:]
-            tiff[kCGImagePropertyTIFFMake] = make
-            tiff[kCGImagePropertyTIFFModel] = selectedDevice
-            if !software.isEmpty { tiff[kCGImagePropertyTIFFSoftware] = software }
-            newMeta[kCGImagePropertyTIFFDictionary] = tiff
-
-            var gps: [CFString: Any] = [:]
-            if let lat = Double(latitude), let lon = Double(longitude) {
-                gps[kCGImagePropertyGPSLatitude] = abs(lat)
-                gps[kCGImagePropertyGPSLatitudeRef] = lat >= 0 ? "N" : "S"
-                gps[kCGImagePropertyGPSLongitude] = abs(lon)
-                gps[kCGImagePropertyGPSLongitudeRef] = lon >= 0 ? "E" : "W"
+            // 复制原图已有元数据，再改设备/位置（kCGImageDestinationMetadata 必须是 CGImageMetadataRef）
+            let meta: CGMutableImageMetadata
+            if let existing = CGImageSourceCopyMetadataAtIndex(src, 0, nil) {
+                meta = CGImageMetadataCreateMutableCopy(existing)
+            } else {
+                meta = CGImageMetadataCreateMutable()
             }
-            if !gps.isEmpty { newMeta[kCGImagePropertyGPSDictionary] = gps }
+            CGImageMetadataSetValueWithPath(meta, nil, "{TIFF}.Make" as CFString, make as CFString)
+            CGImageMetadataSetValueWithPath(meta, nil, "{TIFF}.Model" as CFString, selectedDevice as CFString)
+            if !software.isEmpty {
+                CGImageMetadataSetValueWithPath(meta, nil, "{TIFF}.Software" as CFString, software as CFString)
+            }
+            if let lat = Double(latitude), let lon = Double(longitude) {
+                CGImageMetadataSetValueWithPath(meta, nil, "{GPS}.Latitude" as CFString, abs(lat) as CFNumber)
+                CGImageMetadataSetValueWithPath(meta, nil, "{GPS}.LatitudeRef" as CFString, (lat >= 0 ? "N" : "S") as CFString)
+                CGImageMetadataSetValueWithPath(meta, nil, "{GPS}.Longitude" as CFString, abs(lon) as CFNumber)
+                CGImageMetadataSetValueWithPath(meta, nil, "{GPS}.LongitudeRef" as CFString, (lon >= 0 ? "E" : "W") as CFString)
+            }
 
             let out = NSMutableData()
             guard let dest = CGImageDestinationCreateWithData(out, uti, 1, nil) else {
@@ -248,7 +251,7 @@ struct ExifEditView: View {
             var err: Unmanaged<CFError>?
             let ok = CGImageDestinationCopyImageSource(
                 dest, src,
-                [kCGImageDestinationMetadata: newMeta as CFDictionary,
+                [kCGImageDestinationMetadata: meta,
                  kCGImageDestinationMergeMetadata: true] as CFDictionary,
                 &err)
             DispatchQueue.main.async {
