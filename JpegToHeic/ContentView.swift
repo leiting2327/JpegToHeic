@@ -178,10 +178,23 @@ struct ContentView: View {
                 ? UTType.jpeg.identifier : UTType.heic.identifier
             provider.loadFileRepresentation(forTypeIdentifier: type) { url, err in
                 guard let url = url, err == nil else { return }
-                let name = url.lastPathComponent
-                let preview = UIImage(contentsOfFile: url.path)
-                DispatchQueue.main.async {
-                    self.items.append(ImageItem(name: name, url: url, preview: preview))
+                do {
+                    // PHPicker 返回的是临时文件 URL，闭包返回后会被系统删除，
+                    // 所以必须立刻把数据复制到我们自己的持久临时文件里。
+                    let data = try Data(contentsOf: url)
+                    let ext = (url.lastPathComponent as NSString).pathExtension
+                    let dest = URL(fileURLWithPath: NSTemporaryDirectory())
+                        .appendingPathComponent(UUID().uuidString).appendingPathExtension(ext)
+                    try data.write(to: dest, options: .atomic)
+                    let name = url.lastPathComponent
+                    let preview = UIImage(data: data)
+                    DispatchQueue.main.async {
+                        self.items.append(ImageItem(name: name, url: dest, preview: preview))
+                    }
+                } catch {
+                    DispatchQueue.main.async {
+                        self.message = "读取图片失败：\(error.localizedDescription)"
+                    }
                 }
             }
         }
