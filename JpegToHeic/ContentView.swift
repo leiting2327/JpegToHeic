@@ -23,7 +23,7 @@ struct ContentView: View {
     @State private var message: String?
 
     var body: some View {
-        NavigationStack {
+        NavigationView {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     settingsCard
@@ -59,7 +59,7 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("转换设置").font(.headline)
                 Picker("模式", selection: $lossless) {
-                    Text("无损（像素100%保留）").tag(true)
+                    Text("最高质量（视觉无损）").tag(true)
                     Text("高质量有损").tag(false)
                 }
                 .pickerStyle(.segmented)
@@ -72,7 +72,7 @@ struct ContentView: View {
                     }
                 }
 
-                Text("无损模式完全保留画质清晰度，文件通常更大；有损高质量在肉眼几乎无差的前提下体积更小。")
+                Text("最高质量档以 HEIC 最高码率编码，肉眼零损失、文件偏大；高质量有损档体积更小。")
                     .font(.footnote).foregroundColor(.secondary)
             }
         }

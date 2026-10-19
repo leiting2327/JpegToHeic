@@ -10,6 +10,8 @@ APP="JpegToHeic"
 BUNDLE_ID="com.jpegtoheic.app"
 BUILD_DIR="build"
 SIGNED="0"
+VER="$(sed -n 's/.*MARKETING_VERSION: *"\([^"]*\)".*/\1/p' project.yml | head -1)"
+[ -z "$VER" ] && VER="1.0.0"
 
 echo "==> 生成 Xcode 工程（XcodeGen）"
 xcodegen generate
@@ -91,8 +93,8 @@ PLIST
         -allowProvisioningUpdates
 
     IPA="$(find "$BUILD_DIR/export" -name '*.ipa' | head -1)"
-    cp "$IPA" "$BUILD_DIR/$APP.ipa"
-    echo "==> 签名 IPA 已生成: $BUILD_DIR/$APP.ipa"
+    cp "$IPA" "$BUILD_DIR/$APP-$VER.ipa"
+    echo "==> 签名 IPA 已生成: $BUILD_DIR/$APP-$VER.ipa"
 else
     echo "==> 未提供签名材料，生成无签名 IPA"
     xcodebuild archive \
@@ -106,8 +108,8 @@ else
     APP_PATH="$(find "$BUILD_DIR/$APP.xcarchive/Products/Applications" -maxdepth 1 -name '*.app' | head -1)"
     mkdir -p "$BUILD_DIR/unsigned/Payload"
     cp -R "$APP_PATH" "$BUILD_DIR/unsigned/Payload/"
-    (cd "$BUILD_DIR/unsigned" && zip -qry ../$APP-unsigned.ipa Payload)
-    echo "==> 无签名 IPA 已生成: $BUILD_DIR/$APP-unsigned.ipa"
+    (cd "$BUILD_DIR/unsigned" && zip -qry ../$APP-$VER-unsigned.ipa Payload)
+    echo "==> 无签名 IPA 已生成: $BUILD_DIR/$APP-$VER-unsigned.ipa"
 fi
 
 echo "==> 构建完成"

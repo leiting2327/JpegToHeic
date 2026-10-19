@@ -62,9 +62,12 @@ enum HeicConverter {
             throw ConvertError.cannotCreateDestination
         }
 
-        let props: [CFString: Any] = lossless
-            ? [kCGImagePropertyLossless: true]
-            : [kCGImageDestinationLossyCompressionQuality: quality]
+        // iOS 的 HEIC 编码器通过质量属性控制压缩。
+        // 「无损」档映射为最高质量 1.0（视觉无损）；「有损」档用用户选择的 quality。
+        let qualityValue: Float = lossless ? 1.0 : quality
+        let props: [CFString: Any] = [
+            kCGImageDestinationLossyCompressionQuality: qualityValue
+        ]
         CGImageDestinationAddImage(dest, image, props as CFDictionary)
 
         guard CGImageDestinationFinalize(dest) else {
