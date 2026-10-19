@@ -5,6 +5,7 @@ import VideoToolbox
 /// Encodes a Live Photo video's linear thumbnail on the device: every frame of the main
 /// video, in stored orientation, at 128x96 as HEVC Main 10 without frame reordering and a key
 /// frame at least every 30 frames, as `mov_style_tracks.py` does with ffmpeg.
+@available(iOS 16, *)
 public enum LinearThumbnailEncoder {
     public static let width = 128
     public static let height = 96
