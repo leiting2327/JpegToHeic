@@ -234,7 +234,6 @@ struct ExifEditView: View {
             props[kCGImagePropertyTIFFDictionary] = tiff
 
             var exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any] ?? [:]
-            if !software.isEmpty { exif[kCGImagePropertyExifSoftware] = software }
             props[kCGImagePropertyExifDictionary] = exif
 
             // MARK: GPS 位置
