@@ -22,6 +22,8 @@
 	<true/>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>需要访问相册以保存转换后的 HEIC 图片。</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>需要读取相册以查找实况照片的配对视频，使移植调色盘后仍保留实况。</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

@@ -16,6 +16,8 @@ struct StylePortView: View {
     @State private var resultMode = ""
     @State private var isWorking = false
     @State private var message: String?
+    @State private var pairedVideo: PairedVideo?
+    @State private var liveStatus = ""
 
     var body: some View {
         NavigationView {
@@ -51,9 +53,9 @@ struct StylePortView: View {
         GroupBox {
             VStack(alignment: .leading, spacing: 10) {
                 Label("摄影风格调色板移植", systemImage: "paintpalette.fill").font(.headline)
-                Text("给 iPhone 相机拍摄的 HEIC 照片补上摄影风格元数据，照片 App 编辑时会出现调色板；iOS 27 上还有质感/颗粒。")
+                Text("给 iPhone 相机拍摄的 HEIC 照片补上摄影风格元数据，照片 App 编辑时会出现调色板；iOS 27 上还有质感/颗粒。移植后存相册会自动保留实况照片。")
                     .font(.footnote).foregroundColor(.secondary)
-                Text("只支持 iPhone 相机拍摄的 HEIC 原图（自带 HDR 增益图+分块结构）。JPEG 或转码副本无法移植。")
+                Text("只支持 iPhone 相机拍摄的 HEIC 原图（自带 HDR 增益图+分块结构）。JPEG 或转码副本无法移植。首次会请求相册访问，用于联动实况视频。")
                     .font(.caption).foregroundColor(.orange)
             }
         }
@@ -96,7 +98,11 @@ struct StylePortView: View {
                 if !resultMode.isEmpty {
                     Text(resultMode).font(.footnote).foregroundColor(.secondary)
                 }
-                Text("建议通过「分享」→「存储到文件」传输，避免照片图库重新编码丢失数据。")
+                if !liveStatus.isEmpty {
+                    Label(liveStatus, systemImage: pairedVideo != nil ? "livephoto" : "photo")
+                        .font(.footnote).foregroundColor(pairedVideo != nil ? .green : .secondary)
+                }
+                Text("「存相册」会自动保留实况（含风格化视频轨道）；「分享」用于传到文件。")
                     .font(.caption).foregroundColor(.secondary)
                 HStack(spacing: 12) {
                     Button {
@@ -148,21 +154,69 @@ struct StylePortView: View {
     private func port() {
         guard let data = pickedData else { return }
         isWorking = true
+        pairedVideo = nil
+        liveStatus = ""
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 let result = try StylePorter().patch(
                     data,
-                    options: StylePortOptions(analyzePhoto: true, texture: true, livePhoto: false)
+                    options: StylePortOptions(analyzePhoto: true, texture: true, livePhoto: true)
                 )
                 DispatchQueue.main.async {
                     self.resultData = result.data
                     self.resultMode = modeText(result.report.mode, texture: result.report.addedTexture)
                     self.isWorking = false
+                    self.lookupLiveVideo()
                 }
             } catch {
                 DispatchQueue.main.async {
                     self.message = "移植失败：\(error.localizedDescription)"
                     self.isWorking = false
+                }
+            }
+        }
+    }
+
+    /// 移植完成后，反查原照片的实况视频并风格化，以便存回相册时仍为实况。
+    private func lookupLiveVideo() {
+        guard let data = resultData else { return }
+        liveStatus = "正在检测是否为实况照片…"
+        PhotoLib.requestReadAccess { granted in
+            guard granted else {
+                self.liveStatus = "（未授权读取相册，按静态照片处理）"
+                return
+            }
+            PhotoLib.findPairedVideo(forHEIC: data) { pv in
+                guard let pv = pv else {
+                    DispatchQueue.main.async {
+                        self.liveStatus = "静态照片（未检测到配对实况视频）"
+                        self.pairedVideo = nil
+                    }
+                    return
+                }
+                DispatchQueue.main.async { self.liveStatus = "检测到实况视频，正在处理视频轨道…" }
+                Task.detached {
+                    do {
+                        let outDir = try TempFiles.newDir()
+                        let styled = outDir.appendingPathComponent("styled.mov")
+                        if #available(iOS 16, *) {
+                            try await LivePhotoStyler.style(pv.url, to: styled, texture: true)
+                            DispatchQueue.main.async {
+                                self.pairedVideo = PairedVideo(url: styled,
+                                                               filename: pv.filename,
+                                                               typeIdentifier: pv.typeIdentifier)
+                                self.liveStatus = "实况照片已就绪（含风格化视频）"
+                            }
+                        } else {
+                            DispatchQueue.main.async {
+                                self.liveStatus = "系统低于 iOS 16，仅移植静态图"
+                            }
+                        }
+                    } catch {
+                        DispatchQueue.main.async {
+                            self.liveStatus = "视频轨道处理失败（静态图仍可用）：\(error.localizedDescription)"
+                        }
+                    }
                 }
             }
         }
@@ -192,17 +246,14 @@ struct StylePortView: View {
 
     private func saveToLibrary() {
         guard let url = resultFileURL() else { return }
-        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
-            guard status == .authorized || status == .limited else {
-                DispatchQueue.main.async { self.message = "未授权相册访问。" }
-                return
-            }
-            PHPhotoLibrary.shared().performChanges {
-                let req = PHAssetCreationRequest.forAsset()
-                req.addResource(with: .photo, fileURL: url, options: nil)
-            } completionHandler: { ok, err in
-                DispatchQueue.main.async {
-                    self.message = ok ? "已保存到相册。" : "保存失败：\(err?.localizedDescription ?? "未知错误")"
+        let video = pairedVideo
+        PhotoLib.savePair(photoURL: url, photoName: pickedName, video: video) { res in
+            DispatchQueue.main.async {
+                switch res {
+                case .success:
+                    self.message = video != nil ? "已保存为实况照片（含风格调色盘）。" : "已保存到相册。"
+                case .failure(let e):
+                    self.message = "保存失败：\(e.localizedDescription)"
                 }
             }
         }
