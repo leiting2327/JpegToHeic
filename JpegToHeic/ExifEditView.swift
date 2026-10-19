@@ -225,9 +225,10 @@ struct ExifEditView: View {
                 return
             }
             // 复制原图已有元数据，再改设备/位置（kCGImageDestinationMetadata 必须是 CGImageMetadataRef）
+            let existing = CGImageSourceCopyMetadataAtIndex(src, 0, nil)
             let meta: CGMutableImageMetadata
-            if let existing = CGImageSourceCopyMetadataAtIndex(src, 0, nil) {
-                meta = CGImageMetadataCreateMutableCopy(existing)
+            if let existing = existing {
+                meta = CGImageMetadataCreateMutableCopy(existing) ?? CGImageMetadataCreateMutable()
             } else {
                 meta = CGImageMetadataCreateMutable()
             }
