@@ -220,48 +220,50 @@ struct ExifEditView: View {
         isWorking = true
         DispatchQueue.global(qos: .userInitiated).async {
             guard let src = CGImageSourceCreateWithData(data as CFData, nil),
-                  let uti = CGImageSourceGetType(src) else {
-                DispatchQueue.main.async { self.isWorking = false; self.message = "不支持的图片格式。" }
+                  let uti = CGImageSourceGetType(src),
+                  var props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any] else {
+                DispatchQueue.main.async { self.isWorking = false; self.message = "无法读取这张照片。" }
                 return
             }
-            // 复制原图已有元数据，再改设备/位置（kCGImageDestinationMetadata 必须是 CGImageMetadataRef）
-            let existing = CGImageSourceCopyMetadataAtIndex(src, 0, nil)
-            let meta: CGMutableImageMetadata
-            if let existing = existing {
-                meta = CGImageMetadataCreateMutableCopy(existing) ?? CGImageMetadataCreateMutable()
-            } else {
-                meta = CGImageMetadataCreateMutable()
-            }
-            CGImageMetadataSetValueWithPath(meta, nil, "{TIFF}.Make" as CFString, make as CFString)
-            CGImageMetadataSetValueWithPath(meta, nil, "{TIFF}.Model" as CFString, selectedDevice as CFString)
-            if !software.isEmpty {
-                CGImageMetadataSetValueWithPath(meta, nil, "{TIFF}.Software" as CFString, software as CFString)
-            }
-            if let lat = Double(latitude), let lon = Double(longitude) {
-                CGImageMetadataSetValueWithPath(meta, nil, "{GPS}.Latitude" as CFString, abs(lat) as CFNumber)
-                CGImageMetadataSetValueWithPath(meta, nil, "{GPS}.LatitudeRef" as CFString, (lat >= 0 ? "N" : "S") as CFString)
-                CGImageMetadataSetValueWithPath(meta, nil, "{GPS}.Longitude" as CFString, abs(lon) as CFNumber)
-                CGImageMetadataSetValueWithPath(meta, nil, "{GPS}.LongitudeRef" as CFString, (lon >= 0 ? "E" : "W") as CFString)
-            }
 
+            // MARK: 设备信息（TIFF + EXIF 双写，照片 App 读 TIFF.Model）
+            var tiff = props[kCGImagePropertyTIFFDictionary] as? [CFString: Any] ?? [:]
+            tiff[kCGImagePropertyTIFFMake] = make
+            tiff[kCGImagePropertyTIFFModel] = selectedDevice
+            if !software.isEmpty { tiff[kCGImagePropertyTIFFSoftware] = software }
+            props[kCGImagePropertyTIFFDictionary] = tiff
+
+            var exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any] ?? [:]
+            if !software.isEmpty { exif[kCGImagePropertyExifSoftware] = software }
+            props[kCGImagePropertyExifDictionary] = exif
+
+            // MARK: GPS 位置
+            var gps = props[kCGImagePropertyGPSDictionary] as? [CFString: Any] ?? [:]
+            if let lat = Double(latitude), let lon = Double(longitude) {
+                gps[kCGImagePropertyGPSLatitude] = abs(lat)
+                gps[kCGImagePropertyGPSLatitudeRef] = lat >= 0 ? "N" : "S"
+                gps[kCGImagePropertyGPSLongitude] = abs(lon)
+                gps[kCGImagePropertyGPSLongitudeRef] = lon >= 0 ? "E" : "W"
+            }
+            props[kCGImagePropertyGPSDictionary] = gps
+
+            // MARK: 写回（最高质量，尽量不损失画质）
             let out = NSMutableData()
-            guard let dest = CGImageDestinationCreateWithData(out, uti, 1, nil) else {
+            guard let dest = CGImageDestinationCreateWithData(out, uti, 1, [
+                kCGImageDestinationLossyCompressionQuality: 1.0
+            ] as CFDictionary) else {
                 DispatchQueue.main.async { self.isWorking = false; self.message = "创建输出失败。"; return }
                 return
             }
-            var err: Unmanaged<CFError>?
-            let ok = CGImageDestinationCopyImageSource(
-                dest, src,
-                [kCGImageDestinationMetadata: meta,
-                 kCGImageDestinationMergeMetadata: true] as CFDictionary,
-                &err)
+            CGImageDestinationAddImageFromSource(dest, src, 0, props as CFDictionary)
+            let ok = CGImageDestinationFinalize(dest)
             DispatchQueue.main.async {
                 self.isWorking = false
                 if ok {
                     self.resultData = out as Data
-                    self.message = "元数据已写入。"
+                    self.message = "元数据已写入（设备：\(self.make) \(self.selectedDevice)）。"
                 } else {
-                    self.message = "写入失败：\(err?.takeRetainedValue().localizedDescription ?? "未知错误")"
+                    self.message = "写入失败。"
                 }
             }
         }
