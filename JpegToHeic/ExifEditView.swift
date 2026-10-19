@@ -3,20 +3,40 @@ import PhotosUI
 import Photos
 import UIKit
 import ImageIO
+import CoreLocation
 import UniformTypeIdentifiers
 
-/// 「元数据」功能：读取并修改照片的拍摄设备信息（厂商/机型/软件）与 GPS 位置。
+/// 「元数据」功能：读取并修改照片的拍摄设备信息（苹果全系机型）与 GPS 位置（地名搜索）。
 /// 通过 CGImageDestinationCopyImageSource 只改写元数据、不重编码像素，画质不变。
 struct ExifEditView: View {
+    /// 苹果全系机型（iPhone 6 → 18 Pro Max），Make 固定 Apple。
+    static let devices: [String] = [
+        "iPhone 6", "iPhone 6 Plus", "iPhone 6s", "iPhone 6s Plus", "iPhone SE",
+        "iPhone 7", "iPhone 7 Plus", "iPhone 8", "iPhone 8 Plus", "iPhone X",
+        "iPhone XR", "iPhone XS", "iPhone XS Max",
+        "iPhone 11", "iPhone 11 Pro", "iPhone 11 Pro Max", "iPhone SE (2nd generation)",
+        "iPhone 12 mini", "iPhone 12", "iPhone 12 Pro", "iPhone 12 Pro Max",
+        "iPhone 13 mini", "iPhone 13", "iPhone 13 Pro", "iPhone 13 Pro Max",
+        "iPhone SE (3rd generation)",
+        "iPhone 14", "iPhone 14 Plus", "iPhone 14 Pro", "iPhone 14 Pro Max",
+        "iPhone 15", "iPhone 15 Plus", "iPhone 15 Pro", "iPhone 15 Pro Max",
+        "iPhone 16", "iPhone 16 Plus", "iPhone 16 Pro", "iPhone 16 Pro Max", "iPhone 16e",
+        "iPhone 17", "iPhone 17 Air", "iPhone 17 Pro", "iPhone 17 Pro Max",
+        "iPhone 18", "iPhone 18 Pro", "iPhone 18 Pro Max"
+    ]
+
     @State private var isPickerPresented = false
     @State private var pickedData: Data?
     @State private var fileName = ""
 
-    @State private var make = ""
-    @State private var model = ""
+    @State private var selectedDevice = "iPhone 15 Pro Max"
+    @State private var make = "Apple"
     @State private var software = ""
+    @State private var addressQuery = ""
+    @State private var foundAddress = ""
     @State private var latitude = ""
     @State private var longitude = ""
+    @State private var isGeocoding = false
 
     @State private var isWorking = false
     @State private var resultData: Data?
@@ -56,7 +76,7 @@ struct ExifEditView: View {
         GroupBox {
             VStack(alignment: .leading, spacing: 10) {
                 Label("设备与位置信息", systemImage: "info.circle.fill").font(.headline)
-                Text("修改照片 EXIF 里的拍摄设备（厂商/机型/软件）与 GPS 经纬度。只改元数据，不重新压缩画面。")
+                Text("把拍摄设备改成苹果全系任意机型，位置改成搜索得到的地名。只改元数据，不重新压缩画面。")
                     .font(.footnote).foregroundColor(.secondary)
             }
         }
@@ -66,12 +86,43 @@ struct ExifEditView: View {
         GroupBox {
             VStack(alignment: .leading, spacing: 12) {
                 Text(fileName).font(.subheadline).lineLimit(1)
-                field("厂商 Make", text: $make)
-                field("机型 Model", text: $model)
-                field("软件 Software", text: $software)
+
+                // MARK: 设备选择
+                Text("拍摄设备").font(.caption).foregroundColor(.secondary)
+                Picker("机型", selection: $selectedDevice) {
+                    ForEach(Self.devices, id: \.self) { Text($0).tag($0) }
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(.secondarySystemGroupedBackground))
+
+                field("系统/软件版本（可选）", text: $software)
+
                 Divider()
-                field("纬度（如 26.6）", text: $latitude)
-                field("经度（如 119.5）", text: $longitude)
+
+                // MARK: 位置搜索
+                Text("拍摄位置").font(.caption).foregroundColor(.secondary)
+                HStack {
+                    TextField("搜索地名，如：宁德蕉城区", text: $addressQuery)
+                        .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled(true)
+                    Button {
+                        searchAddress()
+                    } label: {
+                        if isGeocoding { ProgressView() }
+                        else { Text("搜索") }
+                    }
+                    .disabled(isGeocoding || addressQuery.isEmpty)
+                }
+                if !foundAddress.isEmpty {
+                    Label(foundAddress, systemImage: "mappin.and.ellipse")
+                        .font(.footnote).foregroundColor(.green)
+                }
+                if !latitude.isEmpty && !longitude.isEmpty {
+                    Text("经度 \(longitude) · 纬度 \(latitude)")
+                        .font(.caption).foregroundColor(.secondary)
+                }
+
                 Button {
                     applyEdit()
                 } label: {
@@ -92,7 +143,7 @@ struct ExifEditView: View {
         GroupBox {
             VStack(alignment: .leading, spacing: 10) {
                 Text("已生成新文件").font(.headline).foregroundColor(.green)
-                Text("新文件保留原画面，仅替换设备/位置元数据。")
+                Text("新文件：设备 = \(make) \(selectedDevice)，位置 = \(foundAddress.isEmpty ? "未改" : foundAddress)。")
                     .font(.caption).foregroundColor(.secondary)
                 HStack(spacing: 12) {
                     Button { shareResult() } label: {
@@ -111,8 +162,27 @@ struct ExifEditView: View {
             Text(title).font(.caption).foregroundColor(.secondary)
             TextField(title, text: text)
                 .textFieldStyle(.roundedBorder)
-                .keyboardType(.numbersAndPunctuation)
                 .autocorrectionDisabled(true)
+        }
+    }
+
+    // MARK: - 地名 → 经纬度
+
+    private func searchAddress() {
+        isGeocoding = true
+        let geocoder = CLGeocoder()
+        geocoder.geocodeAddressString(addressQuery) { placemarks, error in
+            DispatchQueue.main.async {
+                self.isGeocoding = false
+                guard let p = placemarks?.first, let loc = p.location else {
+                    self.foundAddress = ""
+                    self.message = "没找到这个地名，请换个关键词（可加城市名）。"
+                    return
+                }
+                self.latitude = String(format: "%.6f", loc.coordinate.latitude)
+                self.longitude = String(format: "%.6f", loc.coordinate.longitude)
+                self.foundAddress = p.name ?? self.addressQuery
+            }
         }
     }
 
@@ -122,23 +192,24 @@ struct ExifEditView: View {
         pickedData = data
         fileName = name
         resultData = nil
+        foundAddress = ""
         guard let src = CGImageSourceCreateWithData(data as CFData, nil),
               let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any] else {
             message = "无法读取这张照片的元数据。"
             return
         }
         let tiff = props[kCGImagePropertyTIFFDictionary] as? [CFString: Any]
-        make = tiff?[kCGImagePropertyTIFFMake] as? String ?? ""
-        model = tiff?[kCGImagePropertyTIFFModel] as? String ?? ""
+        let curModel = tiff?[kCGImagePropertyTIFFModel] as? String ?? ""
+        // 若原机型在列表里就选中，否则保持默认
+        if Self.devices.contains(curModel) { selectedDevice = curModel }
+        make = tiff?[kCGImagePropertyTIFFMake] as? String ?? "Apple"
         software = tiff?[kCGImagePropertyTIFFSoftware] as? String ?? ""
         let gps = props[kCGImagePropertyGPSDictionary] as? [CFString: Any]
         if let lat = gps?[kCGImagePropertyGPSLatitude] as? Double {
-            let ref = gps?[kCGImagePropertyGPSLatitudeRef] as? String ?? "N"
-            latitude = String(lat) + (ref == "S" ? "S" : "")
+            latitude = String(lat)
         } else { latitude = "" }
         if let lon = gps?[kCGImagePropertyGPSLongitude] as? Double {
-            let ref = gps?[kCGImagePropertyGPSLongitudeRef] as? String ?? "E"
-            longitude = String(lon) + (ref == "W" ? "W" : "")
+            longitude = String(lon)
         } else { longitude = "" }
     }
 
@@ -150,22 +221,18 @@ struct ExifEditView: View {
         DispatchQueue.global(qos: .userInitiated).async {
             guard let src = CGImageSourceCreateWithData(data as CFData, nil),
                   let uti = CGImageSourceGetType(src) else {
-                DispatchQueue.main.async {
-                    self.isWorking = false
-                    self.message = "不支持的图片格式。"
-                }
+                DispatchQueue.main.async { self.isWorking = false; self.message = "不支持的图片格式。" }
                 return
             }
             var newMeta: [CFString: Any] = [:]
             var tiff: [CFString: Any] = [:]
-            if !make.isEmpty { tiff[kCGImagePropertyTIFFMake] = make }
-            if !model.isEmpty { tiff[kCGImagePropertyTIFFModel] = model }
+            tiff[kCGImagePropertyTIFFMake] = make
+            tiff[kCGImagePropertyTIFFModel] = selectedDevice
             if !software.isEmpty { tiff[kCGImagePropertyTIFFSoftware] = software }
-            if !tiff.isEmpty { newMeta[kCGImagePropertyTIFFDictionary] = tiff }
+            newMeta[kCGImagePropertyTIFFDictionary] = tiff
 
             var gps: [CFString: Any] = [:]
-            if let lat = Double(latitude.filter { !$0.isLetter }),
-               let lon = Double(longitude.filter { !$0.isLetter }) {
+            if let lat = Double(latitude), let lon = Double(longitude) {
                 gps[kCGImagePropertyGPSLatitude] = abs(lat)
                 gps[kCGImagePropertyGPSLatitudeRef] = lat >= 0 ? "N" : "S"
                 gps[kCGImagePropertyGPSLongitude] = abs(lon)

@@ -29,8 +29,8 @@ targets:
       base:
         PRODUCT_NAME: JpegToHeic
         PRODUCT_BUNDLE_IDENTIFIER: com.jpegtoheic.app
-        MARKETING_VERSION: "1.2.0"
-        CURRENT_PROJECT_VERSION: "7"
+        MARKETING_VERSION: "1.2.1"
+        CURRENT_PROJECT_VERSION: "8"
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: JpegToHeic/Info.plist
         TARGETED_DEVICE_FAMILY: "1,2"
