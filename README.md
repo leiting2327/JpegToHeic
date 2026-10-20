@@ -1,58 +1,39 @@
 # JpegToHeic
 
-iOS 双功能小工具：**JPEG → HEIC 格式转换** + **给 HEIC 加摄影风格调色盘**。
+> **永久免费开源项目**。本工具完全免费、无广告、无内购、不上传任何数据，永久免费开放使用。
+> 全程在 iPhone 本地处理，照片不出设备。
 
-## 功能一：格式转换（JPEG → HEIC）
+iOS 三功能小工具：**JPEG → HEIC 格式转换** + **给 HEIC 加摄影风格调色盘（保留实况）** + **修改照片元数据（设备/位置）**。
 
-- **最高质量档**：以 HEIC 最高码率编码，肉眼零损失、画质清晰度保留（文件通常比原图更大）
-- **高质量有损**：肉眼几乎无差的压缩，体积更小
+## 功能
+
+### 一、格式转换（JPEG → HEIC）
+- 最高质量档：HEIC 最高码率编码，肉眼零损失、保留画质清晰度
+- 高质量有损：肉眼几乎无差的压缩，体积更小
 - 支持批量选择、保存到相册、分享到文件/隔空投送
-- 全程在 iPhone 本地处理，照片不上传任何服务器
 
-### 使用
-1. 打开 App →「格式转换」→「选择照片」多选 JPEG
-2. 选择模式：最高质量 / 高质量有损（可调质量）
-3. 点「开始转换」→ 每个结果会显示 原大小 → HEIC 大小
-4. 「保存到相册」或「分享」导出 HEIC 文件
+### 二、调色盘移植（给 HEIC 加摄影风格）
+- 给 iPhone 相机拍摄的 HEIC 补上摄影风格元数据，照片 App 编辑时出现**调色板**；iOS 27 还有**质感/颗粒**
+- **保留实况**：移植后存相册会自动联动原照片的实况视频，移植完仍是实况照片
+- 只支持 iPhone 相机拍摄的 HEIC 原图（自带 HDR 增益图 + 分块结构）；JPEG 或转码副本无法移植
 
-> 说明：最高质量档以 HEIC 最高码率编码、肉眼零损失，但对本身已压缩过的高质量 JPEG，HEIC 文件通常会更大（正常现象）。若想体积更小，用「高质量有损」。
+### 三、元数据修改
+- **拍摄设备**：下拉选择苹果全系机型（iPhone 6 → 18 Pro Max），自动填 Make=Apple
+- **拍摄位置**：搜索地名自动定位，写入 GPS；也可勾选「位置不变」保留原位置
+- 只改元数据，不重新压缩画面
 
-## 功能二：调色盘移植（给 HEIC 加摄影风格）
+## 自签名安装（未签名 IPA）
 
-把 iPhone 相机拍摄的 HEIC 照片补上摄影风格元数据，照片 App 编辑时会出现**调色板**；iOS 27 上还有**质感/颗粒**。
+本项目通过 GitHub Actions 构建**未签名 IPA**，请到 [Releases](../../releases) 下载最新 `JpegToHeic-<版本>-unsigned.ipa`，用你自己的证书签名后安装（AltStore / Sideloadly / 爱思助手等均可）。
 
-### 使用
-1. 打开 App →「调色盘」→「选择 HEIC」
-2. 选择 **iPhone 相机拍摄的 HEIC 原图**（不能是 JPEG 或转码副本）
-3. 状态显示「可移植」→ 点「移植调色盘」
-4. 完成后建议「分享 → 存储到文件」传输（避免照片图库重新编码丢失数据）
+- Bundle ID：`com.jpegtoheic.app`
+- 最低系统：iOS 15
 
-> **重要限制**：调色盘移植只支持 iPhone 相机拍摄的 HEIC（自带 HDR 增益图 + 分块结构）。从 JPEG 用 ImageIO 新转出的 HEIC 缺少这些结构，**无法**移植——这是 Apple 相机 HEIC 的私有结构，非本工具能补齐。本仓库集成的是 [nathanatgit/Shalielie](https://github.com/nathanatgit/Shalielie) 官方 Swift 移植核心（StylePortCore，MIT）。
+## 开源与致谢
 
-## 自签名安装（本仓库产出未签名 IPA）
+- 协议：[MIT License](LICENSE)，可自由使用、修改、分发
+- 调色盘移植核心集成自 [nathanatgit/Shalielie](https://github.com/nathanatgit/Shalielie)（StylePortCore，MIT）
 
-本仓库的 GitHub Actions 默认构建**未签名 IPA**（`JpegToHeic-<版本>-unsigned.ipa`），需要你自己签名后安装：
+## 声明
 
-1. 到仓库 **Actions / Releases** 下载最新 `JpegToHeic-<版本>-unsigned.ipa`
-2. 用你自己的证书签名：
-   - Mac：`codesign -f -s "你的证书" Payload/JpegToHeic.app`，再重新压成 ipa
-   - 或用爱思助手 / AltStore / Sideloadly 等工具导入证书安装
-3. Bundle ID：`com.jpegtoheic.app`，签名描述文件需包含你的设备 UDID
-
-### 用签名材料自动构建（可选）
-
-在仓库 **Settings → Secrets and variables → Actions** 配置以下 Secret 后，Actions 会自动签名并产出可直装 IPA：
-
-| Secret | 说明 |
-|---|---|
-| `CERTIFICATE_BASE64` | 你的开发证书 .p12 的 base64 |
-| `P12_PASSWORD` | p12 密码 |
-| `PROVISIONING_PROFILE_BASE64` | 描述文件 .mobileprovision 的 base64（需含你的设备 UDID） |
-
-## 构建
-
-```bash
-brew install xcodegen
-xcodegen generate
-./scripts/build_ipa.sh      # 产出 build/JpegToHeic-<版本>-unsigned.ipa
-```
+本工具仅供个人学习与合法使用，修改照片元数据应遵守当地法律法规与平台规则，不得用于伪造证据或任何违法用途。使用风险自负。
