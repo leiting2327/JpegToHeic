@@ -37,6 +37,7 @@ struct ExifEditView: View {
     @State private var latitude = ""
     @State private var longitude = ""
     @State private var isGeocoding = false
+    @State private var keepOriginalLocation = false
 
     @State private var isWorking = false
     @State private var resultData: Data?
@@ -102,6 +103,8 @@ struct ExifEditView: View {
 
                 // MARK: 位置搜索
                 Text("拍摄位置").font(.caption).foregroundColor(.secondary)
+                Toggle("位置不变（保留原拍摄位置）", isOn: $keepOriginalLocation)
+                    .font(.footnote)
                 HStack {
                     TextField("搜索地名，如：宁德蕉城区", text: $addressQuery)
                         .textFieldStyle(.roundedBorder)
@@ -112,15 +115,21 @@ struct ExifEditView: View {
                         if isGeocoding { ProgressView() }
                         else { Text("搜索") }
                     }
-                    .disabled(isGeocoding || addressQuery.isEmpty)
+                    .disabled(isGeocoding || addressQuery.isEmpty || keepOriginalLocation)
                 }
-                if !foundAddress.isEmpty {
-                    Label(foundAddress, systemImage: "mappin.and.ellipse")
-                        .font(.footnote).foregroundColor(.green)
-                }
-                if !latitude.isEmpty && !longitude.isEmpty {
-                    Text("经度 \(longitude) · 纬度 \(latitude)")
+                .disabled(keepOriginalLocation)
+                if keepOriginalLocation {
+                    Text("将保留原图拍摄位置，不修改 GPS。")
                         .font(.caption).foregroundColor(.secondary)
+                } else {
+                    if !foundAddress.isEmpty {
+                        Label(foundAddress, systemImage: "mappin.and.ellipse")
+                            .font(.footnote).foregroundColor(.green)
+                    }
+                    if !latitude.isEmpty && !longitude.isEmpty {
+                        Text("经度 \(longitude) · 纬度 \(latitude)")
+                            .font(.caption).foregroundColor(.secondary)
+                    }
                 }
 
                 Button {
@@ -236,15 +245,17 @@ struct ExifEditView: View {
             var exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any] ?? [:]
             props[kCGImagePropertyExifDictionary] = exif
 
-            // MARK: GPS 位置
-            var gps = props[kCGImagePropertyGPSDictionary] as? [CFString: Any] ?? [:]
-            if let lat = Double(latitude), let lon = Double(longitude) {
-                gps[kCGImagePropertyGPSLatitude] = abs(lat)
-                gps[kCGImagePropertyGPSLatitudeRef] = lat >= 0 ? "N" : "S"
-                gps[kCGImagePropertyGPSLongitude] = abs(lon)
-                gps[kCGImagePropertyGPSLongitudeRef] = lon >= 0 ? "E" : "W"
+            // MARK: GPS 位置（勾「位置不变」则保留原图 GPS 不动）
+            if !keepOriginalLocation {
+                var gps = props[kCGImagePropertyGPSDictionary] as? [CFString: Any] ?? [:]
+                if let lat = Double(latitude), let lon = Double(longitude) {
+                    gps[kCGImagePropertyGPSLatitude] = abs(lat)
+                    gps[kCGImagePropertyGPSLatitudeRef] = lat >= 0 ? "N" : "S"
+                    gps[kCGImagePropertyGPSLongitude] = abs(lon)
+                    gps[kCGImagePropertyGPSLongitudeRef] = lon >= 0 ? "E" : "W"
+                }
+                props[kCGImagePropertyGPSDictionary] = gps
             }
-            props[kCGImagePropertyGPSDictionary] = gps
 
             // MARK: 写回（最高质量，尽量不损失画质）
             let out = NSMutableData()
