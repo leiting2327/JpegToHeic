@@ -39,6 +39,12 @@ struct ExifEditView: View {
     @State private var isGeocoding = false
     @State private var keepOriginalLocation = false
 
+    // MARK: 地理编码服务（高德 / 百度 key）
+    /// system=系统自带；amap=高德；baidu=百度
+    @State private var geoProvider: String = UserDefaults.standard.string(forKey: "geo_provider") ?? "system"
+    @State private var amapKey: String = UserDefaults.standard.string(forKey: "amap_key") ?? ""
+    @State private var baiduKey: String = UserDefaults.standard.string(forKey: "baidu_key") ?? ""
+
     @State private var isWorking = false
     @State private var resultData: Data?
     @State private var message: String?
@@ -103,6 +109,32 @@ struct ExifEditView: View {
 
                 // MARK: 位置搜索
                 Text("拍摄位置").font(.caption).foregroundColor(.secondary)
+
+                // MARK: 地理编码服务选择
+                Picker("地理编码服务", selection: $geoProvider) {
+                    Text("系统").tag("system")
+                    Text("高德地图").tag("amap")
+                    Text("百度地图").tag("baidu")
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: geoProvider) { v in UserDefaults.standard.set(v, forKey: "geo_provider") }
+                if geoProvider == "amap" {
+                    TextField("高德 Web 服务 Key", text: $amapKey)
+                        .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled(true)
+                        .onChange(of: amapKey) { v in UserDefaults.standard.set(v, forKey: "amap_key") }
+                    Text("到高德开放平台申请「Web 服务」类型 key。")
+                        .font(.caption2).foregroundColor(.secondary)
+                }
+                if geoProvider == "baidu" {
+                    TextField("百度地图 AK", text: $baiduKey)
+                        .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled(true)
+                        .onChange(of: baiduKey) { v in UserDefaults.standard.set(v, forKey: "baidu_key") }
+                    Text("到百度地图开放平台申请「服务端」AK。")
+                        .font(.caption2).foregroundColor(.secondary)
+                }
+
                 Toggle("位置不变（保留原拍摄位置）", isOn: $keepOriginalLocation)
                     .font(.footnote)
                 HStack {
@@ -175,23 +207,83 @@ struct ExifEditView: View {
         }
     }
 
-    // MARK: - 地名 → 经纬度
+    // MARK: - 地名 → 经纬度（按服务商分发）
 
     private func searchAddress() {
         isGeocoding = true
+        if geoProvider == "amap" { searchAmap() }
+        else if geoProvider == "baidu" { searchBaidu() }
+        else { searchSystem() }
+    }
+
+    private func finishGeocode(lat: Double, lon: Double, addr: String, err: String? = nil) {
+        DispatchQueue.main.async {
+            self.isGeocoding = false
+            if let err = err {
+                self.foundAddress = ""; self.message = err
+                return
+            }
+            self.latitude = String(format: "%.6f", lat)
+            self.longitude = String(format: "%.6f", lon)
+            self.foundAddress = addr
+        }
+    }
+
+    /// 高德 Web 地理编码
+    private func searchAmap() {
+        guard !amapKey.isEmpty else { finishGeocode(lat: 0, lon: 0, addr: "", err: "请先填高德 Web 服务 Key。"); return }
+        var comps = URLComponents(string: "https://restapi.amap.com/v3/geocode/geo")!
+        comps.queryItems = [
+            URLQueryItem(name: "address", value: addressQuery),
+            URLQueryItem(name: "key", value: amapKey)
+        ]
+        URLSession.shared.dataTask(with: comps.url!) { data, _, _ in
+            guard let data = data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  (json["status"] as? String) == "1",
+                  let geocodes = json["geocodes"] as? [[String: Any]],
+                  let first = geocodes.first,
+                  let loc = first["location"] as? String else {
+                self.finishGeocode(lat: 0, lon: 0, addr: "", err: "高德没找到这个地名，或 Key 无效。"); return
+            }
+            let parts = loc.split(separator: ",")
+            guard parts.count == 2, let lon = Double(parts[0]), let lat = Double(parts[1]) else {
+                self.finishGeocode(lat: 0, lon: 0, addr: "", err: "高德返回坐标格式错误。"); return
+            }
+            let addr = (first["formatted_address"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? self.addressQuery
+            self.finishGeocode(lat: lat, lon: lon, addr: addr)
+        }.resume()
+    }
+
+    /// 百度 Web 地理编码
+    private func searchBaidu() {
+        guard !baiduKey.isEmpty else { finishGeocode(lat: 0, lon: 0, addr: "", err: "请先填百度地图 AK。"); return }
+        var comps = URLComponents(string: "https://api.map.baidu.com/geocoding/v3/")!
+        comps.queryItems = [
+            URLQueryItem(name: "address", value: addressQuery),
+            URLQueryItem(name: "ak", value: baiduKey),
+            URLQueryItem(name: "output", value: "json")
+        ]
+        URLSession.shared.dataTask(with: comps.url!) { data, _, _ in
+            guard let data = data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let result = json["result"] as? [String: Any],
+                  let loc = result["location"] as? [String: Any],
+                  let lat = loc["lat"] as? Double, let lon = loc["lng"] as? Double else {
+                self.finishGeocode(lat: 0, lon: 0, addr: "", err: "百度没找到这个地名，或 AK 无效。"); return
+            }
+            self.finishGeocode(lat: lat, lon: lon, addr: self.addressQuery)
+        }.resume()
+    }
+
+    private func searchSystem() {
         let geocoder = CLGeocoder()
         geocoder.geocodeAddressString(addressQuery) { placemarks, error in
-            DispatchQueue.main.async {
-                self.isGeocoding = false
-                guard let p = placemarks?.first, let loc = p.location else {
-                    self.foundAddress = ""
-                    self.message = "没找到这个地名，请换个关键词（可加城市名）。"
-                    return
-                }
-                self.latitude = String(format: "%.6f", loc.coordinate.latitude)
-                self.longitude = String(format: "%.6f", loc.coordinate.longitude)
-                self.foundAddress = p.name ?? self.addressQuery
+            guard let p = placemarks?.first, let loc = p.location else {
+                self.finishGeocode(lat: 0, lon: 0, addr: "", err: "没找到这个地名，请换个关键词（可加城市名）。")
+                return
             }
+            self.finishGeocode(lat: loc.coordinate.latitude, lon: loc.coordinate.longitude, addr: p.name ?? self.addressQuery)
         }
     }
 
@@ -301,15 +393,21 @@ struct ExifEditView: View {
     }
 
     private func saveToLibrary() {
-        guard let url = resultFileURL() else { return }
-        PhotoLib.requestAddAccess { ok in
-            guard ok else { self.message = "未授权相册访问。"; return }
-            PHPhotoLibrary.shared().performChanges {
-                let req = PHAssetCreationRequest.forAsset()
-                req.addResource(with: .photo, fileURL: url, options: nil)
-            } completionHandler: { success, err in
-                DispatchQueue.main.async {
-                    self.message = success ? "已保存到相册。" : "保存失败：\(err?.localizedDescription ?? "未知错误")"
+        guard let url = resultFileURL(), let resultData = resultData else { return }
+        // 先请求读权限反查实况配对视频，再用 savePair 一起存（保留实况）
+        PhotoLib.requestReadAccess { _ in
+            PhotoLib.findPairedVideo(forHEIC: resultData) { video in
+                PhotoLib.savePair(photoURL: url,
+                                  photoName: url.lastPathComponent,
+                                  video: video) { res in
+                    DispatchQueue.main.async {
+                        switch res {
+                        case .success:
+                            self.message = (video != nil) ? "已保存到相册（已保留实况）。" : "已保存到相册。"
+                        case .failure(let err):
+                            self.message = "保存失败：\(err.localizedDescription)"
+                        }
+                    }
                 }
             }
         }
